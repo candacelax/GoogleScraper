@@ -2,12 +2,15 @@
 This is a forked copy of the repo. I've corrected some bugs from the deprecated copy and updates things.
 
 ## Modifications
-
+TODO: more detailed description of changes<br>
+* parsing.py
+* selenium.py
 
 ## Installation notes
-__chromedriver__:<br>
--this is necessary to use selenium
--put chromedriver in GoogleScraper/
+__chromedriver__<br>
+* this is necessary to use selenium
+* follow installation instructions [here](https://gist.github.com/ziadoz/3e8ab7e944d02fe872c3454d17af31a5) for Linux
+* move chromedriver executable to GoogleScraper/
 
 
 ## News
