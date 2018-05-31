@@ -1,4 +1,14 @@
-# GoogleScraper - Scraping search engines professionally
+# GoogleScraper: updates to original scraper
+This is a forked copy of the repo. I've corrected some bugs from the deprecated copy and updates things.
+
+## Modifications
+
+
+## Installation notes
+__chromedriver__:<br>
+-this is necessary to use selenium
+-put chromedriver in GoogleScraper/
+
 
 ## News
 
