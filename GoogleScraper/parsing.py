@@ -10,6 +10,9 @@ import pprint
 from GoogleScraper.database import SearchEngineResultsPage
 import logging
 from cssselect import HTMLTranslator
+# for image searches
+from bs4 import BeautifulSoup
+import urllib.parse
 
 logger = logging.getLogger(__name__)
 
@@ -135,89 +138,130 @@ class Parser():
             # maybe wrong encoding
             logger.error(e)
 
+
+    def _format_image_search_results(self, selector_dict):
+        # credit to github.com/abenassi/Google-Search-API/blob/master/google/modules/images.py     
+        def get_url(div):
+            url_parsed = urllib.parse.urlparse(div.find("a")["href"])
+            query_parsed = urllib.parse.parse_qs(url_parsed.query)
+            return query_parsed['imgurl'][0] if 'imgurl' in query_parsed.keys() else None
+            
+        # get div elements
+        soup = BeautifulSoup(self.html, 'lxml')
+        try:
+            div_container = soup.find("div", {"id": "rg_s"})
+            divs = div_container.find_all("div", {"class": "rg_di"})
+        except:
+            divs = None
+
+
+        # extract URLs and add to results
+        image_urls = list(filter(lambda url: not url == None,
+                                 map(lambda d: get_url(d), divs)))
+        for result_type, selector_class in selector_dict.items():
+            self.search_results[result_type] = []
+            for index, url in enumerate(image_urls):
+                serp_result = {'rank' : index + 1,
+                               'link' : url}
+                self.search_results[result_type].append(serp_result)
+                self.num_results += 1
+        return
+                  
+            
     def _parse(self, cleaner=None):
         """Internal parse the dom according to the provided css selectors.
         
         Raises: InvalidSearchTypeException if no css selectors for the searchtype could be found.
         """
+
         self.num_results = 0
-        self._parse_lxml(cleaner)
+        self._parse_lxml(cleaner) # set up DOM
+
 
         # try to parse the number of results.
         attr_name = self.searchtype + '_search_selectors'
         selector_dict = getattr(self, attr_name, None)
 
-        # get the appropriate css selectors for the num_results for the keyword
-        num_results_selector = getattr(self, 'num_results_search_selectors', None)
-
-        self.num_results_for_query = self.first_match(num_results_selector, self.dom)
-        if not self.num_results_for_query:
-            logger.debug('{}: Cannot parse num_results from serp page with selectors {}'.format(self.__class__.__name__,
-                                                                                       num_results_selector))
-
-        # get the current page we are at. Sometimes we search engines don't show this.
-        try:
-            self.page_number = int(self.first_match(self.page_number_selectors, self.dom))
-        except ValueError:
-            self.page_number = -1
-
-        # let's see if the search query was shitty (no results for that query)
-        self.effective_query = self.first_match(self.effective_query_selector, self.dom)
-        if self.effective_query:
-            logger.debug('{}: There was no search hit for the search query. Search engine used {} instead.'.format(
-                self.__class__.__name__, self.effective_query))
-        else:
-            self.effective_query = ''
-
-        # the element that notifies the user about no results.
-        self.no_results_text = self.first_match(self.no_results_selector, self.dom)
-
         # get the stuff that is of interest in SERP pages.
         if not selector_dict and not isinstance(selector_dict, dict):
             raise InvalidSearchTypeException('There is no such attribute: {}. No selectors found'.format(attr_name))
+        
+        if self.searchtype == 'image':
+            # TODO get other fields besides just url
+            image_urls = self._format_image_search_results(selector_dict)
+            return
 
-        for result_type, selector_class in selector_dict.items():
+        else:
+        
+            # get the appropriate css selectors for the num_results for the keyword
+            num_results_selector = getattr(self, 'num_results_search_selectors', None)
 
-            self.search_results[result_type] = []
+            self.num_results_for_query = self.first_match(num_results_selector, self.dom)
+            if not self.num_results_for_query:
+                logger.debug('{}: Cannot parse num_results from serp page with selectors {}'\
+                             .format(self.__class__.__name__,
+                                     num_results_selector))
 
-            for selector_specific, selectors in selector_class.items():
+            # get the current page we are at. Sometimes we search engines don't show this.
+            try:
+                self.page_number = int(self.first_match(self.page_number_selectors, self.dom))
+            except ValueError:
+                self.page_number = -1
 
-                if 'result_container' in selectors and selectors['result_container']:
-                    css = '{container} {result_container}'.format(**selectors)
-                else:
-                    css = selectors['container']
+            # let's see if the search query was shitty (no results for that query)
+            self.effective_query = self.first_match(self.effective_query_selector, self.dom)
+            if self.effective_query:
+                logger.debug('{}: There was no search hit for the search query. Search engine used {} instead.'.format(
+                    self.__class__.__name__, self.effective_query))
+            else:
+                self.effective_query = ''
 
-                results = self.dom.xpath(
-                    self.css_to_xpath(css)
-                )
+            # the element that notifies the user about no results.
+            self.no_results_text = self.first_match(self.no_results_selector, self.dom)
 
-                to_extract = set(selectors.keys()) - {'container', 'result_container'}
-                selectors_to_use = {key: selectors[key] for key in to_extract if key in selectors.keys()}
+        
+            for result_type, selector_class in selector_dict.items():
 
-                for index, result in enumerate(results):
-                    # Let's add primitive support for CSS3 pseudo selectors
-                    # We just need two of them
-                    # ::text
-                    # ::attr(attribute)
+                self.search_results[result_type] = []
 
-                    # You say we should use xpath expressions instead?
-                    # Maybe you're right, but they are complicated when it comes to classes,
-                    # have a look here: http://doc.scrapy.org/en/latest/topics/selectors.html
-                    serp_result = {}
-                    # key are for example 'link', 'snippet', 'visible-url', ...
-                    # selector is the selector to grab these items
-                    for key, selector in selectors_to_use.items():
-                        serp_result[key] = self.advanced_css(selector, result)
+                for selector_specific, selectors in selector_class.items():
+                    
+                    if 'result_container' in selectors and selectors['result_container']:
+                        css = '{container} {result_container}'.format(**selectors)
+                    else:
+                        css = selectors['container']
 
-                    serp_result['rank'] = index + 1
+                    results = self.dom.xpath(
+                        self.css_to_xpath(css)
+                    )
+                
+                    to_extract = set(selectors.keys()) - {'container', 'result_container'}
+                    selectors_to_use = {key: selectors[key] for key in to_extract if key in selectors.keys()}
 
-                    # only add items that have not None links.
-                    # Avoid duplicates. Detect them by the link.
-                    # If statement below: Lazy evaluation. The more probable case first.
-                    if 'link' in serp_result and serp_result['link'] and \
-                            not [e for e in self.search_results[result_type] if e['link'] == serp_result['link']]:
-                        self.search_results[result_type].append(serp_result)
-                        self.num_results += 1
+                    for index, result in enumerate(results):
+                        # Let's add primitive support for CSS3 pseudo selectors
+                        # We just need two of them
+                        # ::text
+                        # ::attr(attribute)
+
+                        # You say we should use xpath expressions instead?
+                        # Maybe you're right, but they are complicated when it comes to classes,
+                        # have a look here: http://doc.scrapy.org/en/latest/topics/selectors.html
+                        serp_result = {}
+                        # key are for example 'link', 'snippet', 'visible-url', ...
+                        # selector is the selector to grab these items
+                        for key, selector in selectors_to_use.items():
+                            serp_result[key] = self.advanced_css(selector, result)
+
+                            serp_result['rank'] = index + 1
+
+                            # only add items that have not None links.
+                            # Avoid duplicates. Detect them by the link.
+                            # If statement below: Lazy evaluation. The more probable case first.
+                            if 'link' in serp_result and serp_result['link'] and \
+                               not [e for e in self.search_results[result_type] if e['link'] == serp_result['link']]:
+                                self.search_results[result_type].append(serp_result)
+                                self.num_results += 1
 
     def advanced_css(self, selector, element):
         """Evaluate the :text and ::attr(attr-name) additionally.
@@ -449,6 +493,12 @@ class GoogleParser(Parser):
                         if self.query.replace('"', '') in self.search_results[key][i]['snippet']:
                             self.no_results = False
 
+        elif self.searchtype == 'image':
+            if self.num_results > 0:
+                self.no_results = False
+            elif self.num_results <= 0:
+                self.no_results = True
+                            
         clean_regexes = {
             'normal': r'/url\?q=(?P<url>.*?)&sa=U&ei=',
             'image': r'imgres\?imgurl=(?P<url>.*?)&'
@@ -1043,7 +1093,6 @@ def parse_serp(config, html=None, parser=None, scraper=None, search_engine=None,
         serp.set_values_from_parser(parser)
     if scraper:
         serp.set_values_from_scraper(scraper)
-
     return serp
 
 
@@ -1073,7 +1122,6 @@ if __name__ == '__main__':
 
     parser = parser(raw_html)
     parser.parse()
-    print(parser)
 
     with open('/tmp/testhtml.html', 'w') as of:
         of.write(raw_html)
