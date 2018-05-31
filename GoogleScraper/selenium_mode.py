@@ -30,6 +30,7 @@ import logging
 
 
 logger = logging.getLogger(__name__)
+CHROME_DRIVER_PATH = os.path.abspath('GoogleScraper/chromedriver')
 
 
 def get_selenium_scraper_by_search_engine_name(config, search_engine_name, *args, **kwargs):
@@ -220,7 +221,7 @@ class SelScrape(SearchEngineScrape, threading.Thread):
                     '--proxy-server={}://{}:{}'.format(self.proxy.proto, self.proxy.host, self.proxy.port))
                 self.webdriver = webdriver.Chrome(chrome_options=chrome_ops)
             else:
-                self.webdriver = webdriver.Chrome()#service_log_path='/tmp/chromedriver_log.log')
+                self.webdriver = webdriver.Chrome(CHROME_DRIVER_PATH)
             return True
         except WebDriverException as e:
             # we don't have a chrome executable or a chrome webdriver installed
