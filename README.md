@@ -7,8 +7,8 @@ TODO: more detailed description of changes<br>
 * selenium.py
 
 ## Installation notes
-__chromedriver__<br>
-* this is necessary to use selenium
+__ChromeDriver__<br>
+* ChromeDriver is necessary to use selenium, which is the default scrape method
 * follow installation instructions [here](https://gist.github.com/ziadoz/3e8ab7e944d02fe872c3454d17af31a5) for Linux
 * move chromedriver executable to GoogleScraper/
 
