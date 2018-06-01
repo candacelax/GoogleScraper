@@ -84,8 +84,13 @@ class SelScrape(SearchEngineScrape, threading.Thread):
 
     param_field_selectors = {
         'googleimg': {
+            # 'image_type': (By.NAME, 'imgtype'),
+            # 'image_size': (By.NAME, 'imgsz'),
+            # 'image_type': (By.ID, 'input_imgtype'),
+            # 'image_size': (By.ID, 'input_imgsz'),
             'image_type': (By.ID, 'imgtype_input'),
             'image_size': (By.ID, 'imgsz_input'),
+            'image_color' : (By.ID, 'imgc')
         },
     }
 
@@ -93,6 +98,7 @@ class SelScrape(SearchEngineScrape, threading.Thread):
         'googleimg': {
             'image_type': None,
             'image_size': None,
+            'image_color' : None
         },
     }
 
@@ -128,6 +134,7 @@ class SelScrape(SearchEngineScrape, threading.Thread):
             proxy: Optional, if set, use the proxy to route all scrapign through it.
             browser_num: A unique, semantic number for each thread.
         """
+
         self.search_input = None
 
         threading.Thread.__init__(self)
@@ -141,11 +148,13 @@ class SelScrape(SearchEngineScrape, threading.Thread):
         self.xvfb_display = self.config.get('xvfb_display', None)
 
         self.search_param_values = self._get_search_param_values()
+        self.search_param_fields = self._get_search_param_fields()
 
+                
         # get the base search url based on the search engine.
         self.base_search_url = get_base_search_url_by_search_engine(self.config, self.search_engine_name, self.scrape_method)
         super().instance_creation_info(self.__class__.__name__)
-
+        
     def set_proxy(self):
         """Install a proxy on the communication channel."""
 
@@ -471,7 +480,6 @@ class SelScrape(SearchEngineScrape, threading.Thread):
         We know that the correct page is loaded when self.page_number appears
         in the navigation of the page.
         """
-
         if self.search_type == 'normal':
 
             if self.search_engine_name == 'google':
@@ -537,13 +545,13 @@ class SelScrape(SearchEngineScrape, threading.Thread):
             if self.search_input:
                 self.search_input.clear()
                 time.sleep(.25)
-
-                self.search_param_fields = self._get_search_param_fields()
+                
 
                 if self.search_param_fields:
                     wait_res = self._wait_until_search_param_fields_appears()
                     if wait_res is False:
                         raise Exception('Waiting search param input fields time exceeds')
+
                     for param, field in self.search_param_fields.items():
                         if field[0] == By.ID:
                             js_tpl = '''
@@ -557,6 +565,7 @@ class SelScrape(SearchEngineScrape, threading.Thread):
                                 f.setAttribute("value", "%s");
                             }
                             '''
+
                         js_str = js_tpl % (field[1], self.search_param_values[param])
                         self.webdriver.execute_script(js_str)
 
@@ -565,7 +574,6 @@ class SelScrape(SearchEngineScrape, threading.Thread):
                 except ElementNotVisibleException:
                     time.sleep(2)
                     self.search_input.send_keys(self.query + Keys.ENTER)
-
                 self.requested_at = datetime.datetime.utcnow()
             else:
                 logger.debug('{}: Cannot get handle to the input form for keyword {}.'.format(self.name, self.query))
@@ -573,7 +581,6 @@ class SelScrape(SearchEngineScrape, threading.Thread):
 
             super().detection_prevention_sleep()
             super().keyword_info()
-
             for self.page_number in self.pages_per_keyword:
 
                 self.wait_until_serp_loaded()
@@ -622,7 +629,7 @@ class SelScrape(SearchEngineScrape, threading.Thread):
             raise Exception('{}: Aborting due to no available selenium webdriver.'.format(self.name))
 
         try:
-            self.webdriver.set_window_size(400, 400)
+            self.webdriver.set_window_size(1000, 1000)
             self.webdriver.set_window_position(400 * (self.browser_num % 4), 400 * (math.floor(self.browser_num // 4)))
         except WebDriverException as e:
             logger.debug('Cannot set window size: {}'.format(e))

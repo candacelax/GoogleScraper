@@ -207,7 +207,7 @@ def setup_shell_config(config):
         start_python_console(namespace)
     return
 
-def runSimulation(num_results_per_page, num_pages_for_keyword, num_workers):
+def run_simulation(num_results_per_page, num_pages_for_keyword, num_workers):
     print('*' * 60 + 'SIMULATION' + '*' * 60)
     logger.info('If GoogleScraper would have been run without the --simulate flag, it would have:')
     logger.info('Scraped for {} keywords, with {} results a page, in total {} pages for each keyword'.format(
@@ -242,7 +242,7 @@ def main(return_results=False, parse_cmd_line=True, config_from_dict=None):
     Returns:
         A database session to the results when return_results is True. Else, nothing.
     """
-
+    
     external_config_file_path = cmd_line_args = None
 
     if parse_cmd_line:
@@ -340,7 +340,7 @@ def main(return_results=False, parse_cmd_line=True, config_from_dict=None):
                                       .format(repr(VALID_SEARCH_TYPES)))
 
     if config.get('simulate', False):
-        runSimulation(config.get('num_results_per_page', 0),
+        run_simulation(config.get('num_results_per_page', 0),
                       config.get('num_pages_for_keyword'),
                       config.get('num_workers'))
     

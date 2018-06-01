@@ -18,6 +18,8 @@ import time
 import threading,requests, os, urllib
 
 
+MAX_NUM = None
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-e', dest='search_engine', default='google',
@@ -31,6 +33,8 @@ def parse_args():
                         help='filename containing list of keywords for search')
     parser.add_argument('-n', dest='num_threads', default=100,
                         help='num of threads to use for downloading images')
+    parser.add_argument('-m', dest='max_num_results_per_keyword', type=int,
+                        help='useful if you want to cap the number of results')
     return parser.parse_args()
 
 
@@ -52,7 +56,6 @@ class FetchResource(threading.Thread):
                     pass
                 print('[+] Fetched {}'.format(url))
                 
-
 def image_search(output_dir, config, num_threads):
     try:
         search = scrape_with_config(config)
@@ -65,6 +68,9 @@ def image_search(output_dir, config, num_threads):
         image_urls.extend(
             [link.link for link in serp.links]
         )
+
+    if MAX_NUM:
+        image_urls = image_urls if MAX_NUM > len(image_urls) else image_urls[0:MAX_NUM]
 
         
     print('[i] Going to scrape {num} images and saving them in "{dir}"'.format(
@@ -104,13 +110,19 @@ if __name__ == '__main__':
     # either provide keyword or file
     assert (not args.keyword and args.keyword_file) or (args.keyword and not args.keyword_file)
 
+    if args.max_num_results_per_keyword:
+        MAX_NUM = args.max_num_results_per_keyword
+    
 
+    # TODO make list of options for google image
     config = {
         'search_engines': args.search_engine,
         'search_type': args.search_type,
         'scrapemethod': 'selenium',
         'num_pages_for_keyword' : 1,
-        'image_type' : 'Photo'
+        'image_type' : 'clipart', # case sensitive: clipart, photo
+        'image_size' : 'Large',
+        'image_color' : 'color'
     }
     
     if args.keyword:
