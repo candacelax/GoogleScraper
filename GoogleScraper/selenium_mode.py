@@ -10,6 +10,7 @@ import math
 import re
 import sys
 import os
+import os.path as path
 
 try:
     from selenium import webdriver
@@ -29,8 +30,9 @@ from GoogleScraper.user_agents import random_user_agent
 import logging
 
 
+CHROME_DRIVER_PATH = path.join(path.dirname(os.path.realpath(__file__)),
+                               'chromedriver')
 logger = logging.getLogger(__name__)
-CHROME_DRIVER_PATH = os.path.abspath('GoogleScraper/chromedriver')
 
 
 def get_selenium_scraper_by_search_engine_name(config, search_engine_name, *args, **kwargs):
@@ -134,7 +136,6 @@ class SelScrape(SearchEngineScrape, threading.Thread):
             proxy: Optional, if set, use the proxy to route all scrapign through it.
             browser_num: A unique, semantic number for each thread.
         """
-
         self.search_input = None
 
         threading.Thread.__init__(self)
@@ -149,6 +150,11 @@ class SelScrape(SearchEngineScrape, threading.Thread):
 
         self.search_param_values = self._get_search_param_values()
         self.search_param_fields = self._get_search_param_fields()
+
+        self.port = config['port']
+        self.starting_point = self.image_search_locations[self.search_engine_name] \
+                              if self.config.get('search_type', 'normal') == 'image' \
+                                 else self.base_search_url
 
                 
         # get the base search url based on the search engine.
@@ -230,7 +236,8 @@ class SelScrape(SearchEngineScrape, threading.Thread):
                     '--proxy-server={}://{}:{}'.format(self.proxy.proto, self.proxy.host, self.proxy.port))
                 self.webdriver = webdriver.Chrome(chrome_options=chrome_ops)
             else:
-                self.webdriver = webdriver.Chrome(CHROME_DRIVER_PATH)
+                self.webdriver = webdriver.Chrome(CHROME_DRIVER_PATH,
+                                                  port=self.port)
             return True
         except WebDriverException as e:
             # we don't have a chrome executable or a chrome webdriver installed
@@ -337,13 +344,7 @@ class SelScrape(SearchEngineScrape, threading.Thread):
     def build_search(self):
         """Build the search for SelScrapers"""
         assert self.webdriver, 'Webdriver needs to be ready to build the search'
-
-        if self.config.get('search_type', 'normal') == 'image':
-            starting_point = self.image_search_locations[self.search_engine_name]
-        else:
-            starting_point = self.base_search_url
-
-        self.webdriver.get(starting_point)
+        self.webdriver.get(self.starting_point) # loads webpage
 
     def _get_search_param_values(self):
         search_param_values = {}
@@ -524,82 +525,92 @@ class SelScrape(SearchEngineScrape, threading.Thread):
             logger.debug(SeleniumSearchError(
                 '{}: Keyword "{}" not found in title: {}'.format(self.name, self.query, self.webdriver.title)))
 
-    def search(self):
-        """Search with webdriver.
 
+    def search(self, query):
+        """Search with webdriver.
+        Improvement: all searches are in same browser window
         Fills out the search form of the search engine for each keyword.
         Clicks the next link while pages_per_keyword is not reached.
         """
-        for self.query, self.pages_per_keyword in self.jobs.items():
+        self.search_input = self._wait_until_search_input_field_appears()
 
-            self.search_input = self._wait_until_search_input_field_appears()
+        if self.search_input is False and self.config.get('stop_on_detection'):
+            self.status = 'Malicious request detected'
+            return
 
-            if self.search_input is False and self.config.get('stop_on_detection'):
-                self.status = 'Malicious request detected'
-                return
+        if self.search_input is False:
+            # @todo: pass status_code
+            self.search_input = self.handle_request_denied()
 
-            if self.search_input is False:
-                # @todo: pass status_code
-                self.search_input = self.handle_request_denied()
-
-            if self.search_input:
-                self.search_input.clear()
-                time.sleep(.25)
+        if not self.search_input:
+            logger.debug('{}: Cannot get handle to the input form for keyword {}.'\
+                         .format(self.name, self.query))
+            return
+        else:
+            self.search_input.clear()
+            time.sleep(.25)
                 
 
-                if self.search_param_fields:
-                    wait_res = self._wait_until_search_param_fields_appears()
-                    if wait_res is False:
-                        raise Exception('Waiting search param input fields time exceeds')
+            if self.search_param_fields:
+                wait_res = self._wait_until_search_param_fields_appears()
+               
+                if wait_res is False:
+                    raise Exception('Waiting search param input fields time exceeds')
+                
+                for param, field in self.search_param_fields.items():
+                    if field[0] == By.ID:
+                        js_tpl = '''
+                        var field = document.getElementById("%s");
+                        field.setAttribute("value", "%s");
+                        '''
+                    elif field[0] == By.NAME:
+                        js_tpl = '''
+                        var fields = document.getElementsByName("%s");
+                        for (var f in fields) {
+                        f.setAttribute("value", "%s");
+                        }
+                        '''
 
-                    for param, field in self.search_param_fields.items():
-                        if field[0] == By.ID:
-                            js_tpl = '''
-                            var field = document.getElementById("%s");
-                            field.setAttribute("value", "%s");
-                            '''
-                        elif field[0] == By.NAME:
-                            js_tpl = '''
-                            var fields = document.getElementsByName("%s");
-                            for (var f in fields) {
-                                f.setAttribute("value", "%s");
-                            }
-                            '''
+                    js_str = js_tpl % (field[1], self.search_param_values[param])
+                    self.webdriver.execute_script(js_str)
 
-                        js_str = js_tpl % (field[1], self.search_param_values[param])
-                        self.webdriver.execute_script(js_str)
-
-                try:
-                    self.search_input.send_keys(self.query + Keys.ENTER)
-                except ElementNotVisibleException:
-                    time.sleep(2)
-                    self.search_input.send_keys(self.query + Keys.ENTER)
+            try:
+                self.search_input.send_keys(self.query + Keys.ENTER)
+                
+                # check if recaptcha appears
+                js_tpl = '''
+                        return document.getElementById("recaptcha");
+                        '''
+                test_captcha = self.webdriver.execute_script(js_tpl)
+                if test_captcha:
+                    get_input = input('Have you checked browser?')
+                
+            except ElementNotVisibleException:
+                time.sleep(2)
+                self.search_input.send_keys(self.query + Keys.ENTER)
                 self.requested_at = datetime.datetime.utcnow()
-            else:
-                logger.debug('{}: Cannot get handle to the input form for keyword {}.'.format(self.name, self.query))
-                continue
 
-            super().detection_prevention_sleep()
-            super().keyword_info()
-            for self.page_number in self.pages_per_keyword:
+        # at this point, query and params have been sent
+        super().detection_prevention_sleep()
+        super().keyword_info()
+        
+        for self.page_number in self.pages_per_keyword:
+            self.wait_until_serp_loaded()
+            try:
+                self.html = self.webdriver.execute_script('return document.body.innerHTML;')
+            except WebDriverException as e:
+                self.html = self.webdriver.page_source
+            super().after_search()
 
-                self.wait_until_serp_loaded()
+            # Click the next page link not when leaving the loop
+            # in the next iteration.
+            if self.page_number in self.pages_per_keyword:
+                next_url = self._goto_next_page()
+                self.requested_at = datetime.datetime.utcnow()
 
-                try:
-                    self.html = self.webdriver.execute_script('return document.body.innerHTML;')
-                except WebDriverException as e:
-                    self.html = self.webdriver.page_source
-
-                super().after_search()
-
-                # Click the next page link not when leaving the loop
-                # in the next iteration.
-                if self.page_number in self.pages_per_keyword:
-                    next_url = self._goto_next_page()
-                    self.requested_at = datetime.datetime.utcnow()
-
-                    if not next_url:
-                        break
+                if not next_url:
+                    break
+        
 
     def page_down(self):
         """Scrolls down a page with javascript.
@@ -622,14 +633,14 @@ class SelScrape(SearchEngineScrape, threading.Thread):
 
     def run(self):
         """Run the SelScraper."""
-
+        
         self._set_xvfb_display()
 
         if not self._get_webdriver():
             raise Exception('{}: Aborting due to no available selenium webdriver.'.format(self.name))
 
         try:
-            self.webdriver.set_window_size(1000, 1000)
+            self.webdriver.set_window_size(400, 400)
             self.webdriver.set_window_position(400 * (self.browser_num % 4), 400 * (math.floor(self.browser_num // 4)))
         except WebDriverException as e:
             logger.debug('Cannot set window size: {}'.format(e))
@@ -637,8 +648,12 @@ class SelScrape(SearchEngineScrape, threading.Thread):
         super().before_search()
 
         if self.startable:
-            self.build_search()
-            self.search()
+            for self.query, self.pages_per_keyword in sorted(self.jobs.items(),
+                                                             key=lambda x: x[0]):
+                print('starting ', self.query)
+                self.webdriver.get(self.starting_point)
+                self.search(self.query)
+                print('finished for', self.query)
 
         if self.webdriver:
             self.webdriver.quit()

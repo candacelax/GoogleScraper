@@ -76,6 +76,7 @@ def get_base_search_url_by_search_engine(config, search_engine_name, search_mode
     Returns:
         The base search url.
     """
+    
     assert search_mode in SEARCH_MODES, 'search mode "{}" is not available'.format(search_mode)
 
     specific_base_url = config.get('{}_{}_search_url'.format(search_mode, search_engine_name), None)
@@ -165,6 +166,9 @@ class SearchEngineScrape(metaclass=abc.ABCMeta):
         else:
             self.search_type = search_type
 
+        if self.search_engine_name == 'google' and self.search_type == 'image':
+            self.search_engine_name = 'googleimg'
+            
         self.jobs = jobs
 
         # the keywords that couldn't be scraped by this worker
@@ -343,8 +347,7 @@ class SearchEngineScrape(metaclass=abc.ABCMeta):
             for n in s:
                 if search_number % n == 0:
                     return self.sleeping_ranges[n]
-        # sleep one second
-        return 1, 2
+        return 1, 2 # sleep one second
 
     def detection_prevention_sleep(self):
         # match the largest sleep range
@@ -353,14 +356,13 @@ class SearchEngineScrape(metaclass=abc.ABCMeta):
 
     def after_search(self):
         """Store the results and parse em.
-
         Notify the progress queue if necessary.
         """
         self.search_number += 1
 
         if not self.store():
-            logger.debug('No results to store for keyword: "{}" in search engine: {}'.format(self.query,
-                                                                                    self.search_engine_name))
+            logger.debug('No results to store for keyword: "{}" in search engine: {}'\
+                         .format(self.query, self.search_engine_name))
 
         if self.progress_queue:
             self.progress_queue.put(1)

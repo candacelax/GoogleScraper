@@ -143,41 +143,6 @@ class ShowProgressQueue(threading.Thread):
             self.queue.task_done()
 
 
-# TODO add support for multiple keywords
-def get_keywords(keyword, keyword_file):
-    # check either file or config dict for keywords
-    if keyword_file:
-        keyword_file = os.path.abspath(keyword_file)
-        if not os.path.exists(keyword_file):
-            raise WrongConfigurationError('The keyword file {} does not exist.'.format(keyword_file))
-        else:
-            if keyword_file.endswith('.py'):
-                # we need to import the variable "scrape_jobs" from the module.
-                sys.path.append(os.path.dirname(keyword_file))
-                try:
-                    modname = os.path.split(keyword_file)[-1].rstrip('.py')
-                    scrape_jobs = getattr(__import__(modname, fromlist=['scrape_jobs']), 'scrape_jobs')
-                except ImportError as e:
-                    logger.warning(e)
-                else:
-                # Clean the keywords of duplicates right in the beginning
-                    keywords = set([line.strip() for line in open(keyword_file, 'r').read().split('\n') if line.strip()])
-    else:
-        # FIXME
-        #keywords = [config.get('keyword'), ] if config.get('keyword') else set(config.get('keywords', []))
-        keywords = [keyword, ]
-
-    # if no keywords are provided, just print help
-    if not keywords and not keyword_file:
-        get_command_line(True)
-        print('No keywords to scrape for. '\
-              'Please provide either an keyword file (Option: --keyword-file) or specify and '
-              'keyword with --keyword.')
-        return None, None
-
-    return keywords, keyword_file
-
-
 def get_search_engines(search_engines, supported_search_engines):
     # when no search engine is specified, use google
     if not isinstance(search_engines, list):
@@ -253,6 +218,9 @@ def main(return_results=False, parse_cmd_line=True, config_from_dict=None):
 
         
     config = get_config(cmd_line_args, external_config_file_path, config_from_dict)
+
+    keywords = config.get('keywords')
+    kwfile = config.get('keyword_file', None)
     
     if isinstance(config['log_level'], int):
         config['log_level'] = logging.getLevelName(config['log_level'])
@@ -282,9 +250,7 @@ def main(return_results=False, parse_cmd_line=True, config_from_dict=None):
     
     proxy_file = config.get('proxy_file', '')
     proxy_db = config.get('mysql_proxy_db', '')
-
-    keywords, kwfile = get_keywords(config.get('keyword', None),
-                                    config.get('keyword_file', None))
+    
     setup_shell_config(config)
     search_engines = get_search_engines(config.get('search_engines', ['google']),
                                       config.get('supported_search_engines'))

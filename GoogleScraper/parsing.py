@@ -157,7 +157,7 @@ class Parser():
 
         # extract URLs and add to results
         image_urls = list(filter(lambda url: not url == None,
-                                 map(lambda d: get_url(d), divs)))
+                                 [ get_url(d) for d in divs]))
         for result_type, selector_class in selector_dict.items():
             self.search_results[result_type] = []
             for index, url in enumerate(image_urls):
